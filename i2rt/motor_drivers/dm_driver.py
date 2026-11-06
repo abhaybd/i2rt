@@ -501,6 +501,7 @@ class DMChainCanInterface(MotorChain):
         self.command_lock = threading.RLock()
 
         self.start_thread_flag = False
+        self._control_thread: Optional[threading.Thread] = None
         if start_thread:
             self.start_thread()
 
@@ -569,8 +570,8 @@ class DMChainCanInterface(MotorChain):
         if self.start_thread_flag:
             return
         logger.info("starting separate thread for control loop")
-        thread = threading.Thread(target=self._set_torques_and_update_state)
-        thread.start()
+        self._control_thread = threading.Thread(target=self._set_torques_and_update_state)
+        self._control_thread.start()
         self.start_thread_flag = True
         time.sleep(0.1)
         while self.state is None:
@@ -785,6 +786,10 @@ class DMChainCanInterface(MotorChain):
 
     def close(self) -> None:
         self.running = False
+        # A transaction may still be using the socket after the stop flag is set.
+        # Wait for the entire loop (including same-bus device reads) before closing it.
+        if self._control_thread is not None:
+            self._control_thread.join()
         self.motor_interface.close()
 
 
